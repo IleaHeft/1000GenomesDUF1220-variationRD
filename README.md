@@ -4,8 +4,6 @@ Analysis of DUF1220 variation in a subset of 1000Genomes samples by read depth
 ## 1. Analyze effect of sequencing center on DUF1220 copy number (before and after correcting for population)
 Run scripts/effect-of-center-and-pop.Rmd  
   To View results, download: scripts/effect-of-center-and-pop.html and click on the file.  The file will open in your browser  
-  
-  https://github.com/IleaHeft/1000GenomesDUF1220-variationRD/blob/master/scripts/effect-of-center-and-pop.nb.html
 
 **Based on results of sequencing center analysis, might need to:**
 - Exclude samples sequenced at ILLUMINA, BGI, AND BI  
