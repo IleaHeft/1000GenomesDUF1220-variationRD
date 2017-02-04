@@ -1,23 +1,135 @@
 ---
 title: "Effect of sequencing center"
-output: html_notebook
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
 ---
-```{r load libraries}
+Load libraries, read in original data frame, and process to get into format necessary for the tests
+```{r setup}
 library(tidyverse)
 library(car)
+library(reshape2)
+
+rd1000 <- read_delim("~/LabProjects/ReadDepth/data/1000Genomes/1000Genomes_with_unique_regions.txt", "\t")
+colnames(rd1000) <- tolower(colnames(rd1000))
+
+# Read in metadata file (sequence.index) to get info like population, sequencing center
+metadata <- read_delim("~/LabProjects/ReadDepth/data/1000Genomes/sequence.index",delim = "\t", progress = FALSE)
+colnames(metadata)[10] <- "sample"
+
+# Merge the metatdata with the read depth data
+
+# Filter data and select the columns we want to merge
+metadata.tomerge <- metadata %>%
+  filter(ANALYSIS_GROUP != "exome", INSTRUMENT_MODEL == "Illumina HiSeq 2000", LIBRARY_LAYOUT == "PAIRED") %>% filter(CENTER_NAME != "BCM") %>%
+  group_by(sample, CENTER_NAME, POPULATION) %>%
+  summarise(tot.reads = sum(READ_COUNT), mean.insert = mean(INSERT_SIZE))
+
+colnames(metadata.tomerge) <- tolower(colnames(metadata.tomerge))
+
+pop.groups <- read.delim("~/LabProjects/ReadDepth/data/1000Genomes/PopulationGroups.csv", sep = ",")
+colnames(pop.groups) <- tolower(colnames(pop.groups))
+
+# Merge metadata and population group information with read depth data
+
+rd1000.data <- inner_join(rd1000, metadata.tomerge)
+rd1000.data <- inner_join(rd1000.data, pop.groups)
+
+## Summarise data by gene-specific clade groups
+# Melt the data frame
+rd1000.melt <- melt(rd1000.data, id.vars = c("sample", "center_name", "population", "pop.group", "mean.insert", "tot.reads"))
+colnames(rd1000.melt)[7] <- "region"
+colnames(rd1000.melt)[8] <- "rd"
+
+# Write it to a file
+write.table(rd1000.melt, file = "~/LabProjects/ReadDepth/variation_analysis/1000Genomes-rd-data-melted.txt", sep = "\t",
+            row.names=FALSE,
+            quote = FALSE)
+
 ```
 
+```{bash add grouping info}
+# Executes the python code that adds information about gene-specific clade groups
+python ~/LabProjects/ReadDepth/variation_analysis/for-making-gene-specific-clade-groups/scripts/make-gene-level-clade-groups3.py ~/LabProjects/ReadDepth/variation_analysis/1000Genomes-rd-data-melted.txt ~/LabProjects/ReadDepth/variation_analysis/for-making-gene-specific-clade-groups/supporting-files/clusters-collapse-hls.csv ~/LabProjects/G4/num-108bpHLS-per-gene.txt ~/LabProjects/ReadDepth/variation_analysis/
+```
 
+```{r, message=FALSE, warning=TRUE}
+# Read in the data with the gene specific clade group information added
+rd1000.groups <- read_delim("~/LabProjects/ReadDepth/variation_analysis/1000Genomes-rd-data-with-groupings.txt", delim = "\t", col_names = FALSE)
+colnames(rd1000.groups) <- c("sample","pop", "pop.group","center", "region", "gene.clade","value", "gene_copy", "group", "sample.group")
 
-Read in data file
-```{r Read in data, message=FALSE}
+group.sums.by.sample <- rd1000.groups %>% filter(center != "BCM") %>%
+  group_by(sample, pop, pop.group, center, group) %>% 
+  summarise(group.total = sum(value))
 
-# Note: the file 1000Genomes-data-setup-for-test-of-center-and-pop.txt is generated in the script 1000-Genomes-DUF1220-Variation-Analysis.Rmd
-center.test <- read_delim("~/LabProjects/ReadDepth/variation_analysis/1000Genomes-data-setup-for-test-of-center-and-pop.txt", delim = "\t")
+total.duf.by.sample <- group.sums.by.sample %>% group_by(sample) %>%
+  summarise(total.duf = sum(group.total))
+
+group.sums.by.sample <- merge(group.sums.by.sample, total.duf.by.sample)
+
+center.test <- group.sums.by.sample %>% mutate(BGI = ifelse(center == "BGI",1,0),
+                                               SC = ifelse(center == "SC",1,0),
+                                               BI = ifelse(center == "BI",1,0),
+                                               ILLUMINA = ifelse(center == "ILLUMINA",1,0),
+                                               MPIMG = ifelse(center == "MPIMG",1,0),
+                                               WUGSC = ifelse(center == "WUGSC",1,0))
+
+center.test <- center.test %>% mutate(ASW = ifelse(pop == "ASW",1,0),
+                                      CEU = ifelse(pop == "CEU",1,0),
+                                      CHB = ifelse(pop == "CHB",1,0),
+                                      CHS = ifelse(pop == "CHS",1,0),
+                                      CLM = ifelse(pop == "CLM",1,0),
+                                      FIN = ifelse(pop == "FIN",1,0),
+                                      GBR = ifelse(pop == "GBR",1,0),
+                                      IBS = ifelse(pop == "IBS",1,0),
+                                      JPT = ifelse(pop == "JPT",1,0),
+                                      LWK = ifelse(pop == "LWK",1,0),
+                                      MXL = ifelse(pop == "MXL",1,0),
+                                      PUR = ifelse(pop == "PUR",1,0),
+                                      TSI = ifelse(pop == "TSI",1,0),
+                                      YRI = ifelse(pop == "YRI",1,0))
+
 center.test <- center.test %>% select(-group, -group.total) 
 center.test <- center.test %>% group_by(sample, pop, pop.group, center, BGI, SC, BI, ILLUMINA, MPIMG, WUGSC, ASW, CEU, CHB, CHS, CLM, FIN, GBR, IBS, JPT, LWK, MXL, PUR, TSI, YRI) %>% summarise(total.duf = median(total.duf)) 
+```
+
+Show the head of the data frame used for the below analysis
+```{r}
 head(center.test)
 ```
+
+
+### Generate summary stats on number of samples from each population and sequencing center
+#### Total number of samples (BCM excluded):  
+**`r length(center.test$sample)`**
+
+#### Number of samples sequenced at each center
+```{r}
+num.samples.by.center <- center.test %>% group_by(center) %>% summarise(count = n()) %>% arrange(count)
+ggplot(num.samples.by.center, aes(x = center, y = count, label = count)) + geom_bar(stat = "identity") + geom_text()
+```
+
+#### Number of samples from each population
+```{r}
+num.samples.by.pop <- center.test %>% group_by(pop) %>% summarise(count = n()) %>% arrange(count)
+ggplot(num.samples.by.pop, aes(x = pop, y = count, label = count)) + geom_bar(stat = "identity") + geom_text()
+```
+
+#### Number of samples from each population by sequencing center
+```{r}
+num.samples.by.pop.cent <- center.test %>% group_by(pop, center) %>% summarise(count = n()) %>% arrange(count)
+ggplot(num.samples.by.pop.cent, aes(x = pop, y = count, fill = center, label = count)) + geom_bar(stat = "identity") + geom_text(size = 3, position = position_stack(vjust = 0.5))
+num.samples.by.pop.cent
+```
+
+#### Number of samples from each sequencing center by population
+```{r}
+num.samples.by.cent.pop <- center.test %>% group_by(center,pop) %>% summarise(count = n()) %>% arrange(count)
+ggplot(num.samples.by.cent.pop, aes(x = center, y = count, fill = pop, label = count)) + geom_bar(stat = "identity") + geom_text(size = 3, position = position_stack(vjust = 0.5))
+num.samples.by.cent.pop
+```
+
 
 ### Calculate model containing only sequencing centers - set center MPIMG as reference
 ```{r}
