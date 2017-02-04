@@ -1,0 +1,247 @@
+---
+title: "1000 Genomes DUF1220 Variation Analysis"
+output:
+  pdf_document: default
+  html_notebook: default
+  word_document: default
+---
+
+```{r Read in libraries}
+# Read in necessary libraries
+# tidyverse loads: ggplot2, tibble, tidyr, readr, purrr,dplyr
+library(tidyverse)
+library(beeswarm)
+library(lmtest)
+#library(dplyr)
+#library(ggplot2)
+library(reshape2)
+#library(stats)
+#library(readxl)
+#library(readr)
+
+```
+
+
+```{r Read in data}
+# Read in data
+
+rd1000 <- read_delim("~/LabProjects/ReadDepth/data/1000Genomes/1000Genomes_with_unique_regions.txt", "\t")
+colnames(rd1000) <- tolower(colnames(rd1000))
+```
+
+```{r}
+# make lists of domain names from each clade, and report number of domains in each clade, and check match to reference
+
+con1.domains.names <- grep("con1_", names(rd1000), value= TRUE)
+con2.domains.names <- grep("con2_", names(rd1000), value= TRUE)
+con3.domains.names <- grep("con3_", names(rd1000), value= TRUE)
+hls1.domains.names <- grep("hls1_", names(rd1000), value= TRUE)
+hls2.domains.names <- grep("hls2_", names(rd1000), value= TRUE)
+hls3.domains.names <- grep("hls3_", names(rd1000), value= TRUE)
+
+# Read in reference annotation file: 
+```
+Number of domains in each clade in data file:  
+CON1: `r length(con1.domains.names)`  
+CON2: `r length(con2.domains.names)`  
+CON3: `r length(con3.domains.names)`  
+HLS1: `r length(hls1.domains.names)`  
+HLS2: `r length(hls2.domains.names)`  
+HLS3: `r length(hls3.domains.names)`  
+
+```{r}
+# Read in metadata file (sequence.index) to get info like population, sequencing center
+metadata <- read_delim("~/LabProjects/ReadDepth/data/1000Genomes/sequence.index","\t")
+colnames(metadata)[10] <- "sample"
+```
+
+```{r}
+# Merge the metatdata with the read depth data
+
+# Filter data and select the columns we want to merge
+metadata.tomerge <- metadata %>%
+  filter(ANALYSIS_GROUP != "exome", INSTRUMENT_MODEL == "Illumina HiSeq 2000", LIBRARY_LAYOUT == "PAIRED") %>% filter(CENTER_NAME != "BCM", CENTER_NAME != "ILLUMINA") %>%
+  group_by(sample, CENTER_NAME, POPULATION) %>%
+  summarise(tot.reads = sum(READ_COUNT), mean.insert = mean(INSERT_SIZE))
+
+colnames(metadata.tomerge) <- tolower(colnames(metadata.tomerge))
+
+pop.groups <- read.delim("~/LabProjects/ReadDepth/data/1000Genomes/PopulationGroups.csv", sep = ",")
+colnames(pop.groups) <- tolower(colnames(pop.groups))
+
+# Merge metadata and population group information with read depth data
+
+rd1000.data <- inner_join(rd1000, metadata.tomerge)
+rd1000.data <- inner_join(rd1000.data, pop.groups)
+head(rd1000.data)
+
+# Correct data for center to center variation
+```
+
+```{r}
+## Summarise data by gene-specific clade groups
+# Melt the data frame
+rd1000.melt <- melt(rd1000.data, id.vars = c("sample", "center_name", "population", "pop.group", "mean.insert", "tot.reads"))
+colnames(rd1000.melt)[7] <- "region"
+colnames(rd1000.melt)[8] <- "rd"
+
+# Write it to a file
+write.table(rd1000.melt, file = "~/LabProjects/ReadDepth/variation_analysis/1000Genomes-rd-data-melted.txt", sep = "\t",
+            row.names=FALSE,
+            quote = FALSE)
+
+rd1000.melt
+```
+
+This first block executes code with separate hls groups
+```{bash}
+# Executes the python code that adds information about gene-specific clade groups
+python ~/LabProjects/ReadDepth/variation_analysis/for-making-gene-specific-clade-groups/scripts/make-gene-level-clade-groups2.py ~/LabProjects/ReadDepth/variation_analysis/1000Genomes-rd-data-melted.txt ~/LabProjects/ReadDepth/variation_analysis/for-making-gene-specific-clade-groups/supporting-files/cluster-designations.csv ~/LabProjects/ReadDepth/variation_analysis/
+```
+This chunk executes the same code as above, but with all HLS measures collapsed - for each gene group (e.g. NBPF10_14_19_20_HLS - rather than separate groups for HLS1, HLS2, HLS3)
+
+```{bash}
+# Executes the python code that adds information about gene-specific clade groups
+python ~/LabProjects/ReadDepth/variation_analysis/for-making-gene-specific-clade-groups/scripts/make-gene-level-clade-groups2.py ~/LabProjects/ReadDepth/variation_analysis/1000Genomes-rd-data-melted.txt ~/LabProjects/ReadDepth/variation_analysis/for-making-gene-specific-clade-groups/supporting-files/clusters-collapse-hls.csv ~/LabProjects/ReadDepth/variation_analysis/
+```
+
+This executes basically the same as above, but with version 3 of the code, that adds data on the number of 108bp HLS exons per gene
+```{bash}
+# Executes the python code that adds information about gene-specific clade groups
+python ~/LabProjects/ReadDepth/variation_analysis/for-making-gene-specific-clade-groups/scripts/make-gene-level-clade-groups3.py ~/LabProjects/ReadDepth/variation_analysis/1000Genomes-rd-data-melted.txt ~/LabProjects/ReadDepth/variation_analysis/for-making-gene-specific-clade-groups/supporting-files/clusters-collapse-hls.csv ~/LabProjects/G4/num-108bpHLS-per-gene.txt ~/LabProjects/ReadDepth/variation_analysis/
+```
+
+
+```{r}
+# Read in the data with the gene specific clade group information added
+rd1000.groups <- read_delim("~/LabProjects/ReadDepth/variation_analysis/1000Genomes-rd-data-with-groupings.txt", delim = "\t", col_names = FALSE)
+colnames(rd1000.groups) <- c("sample","pop", "pop.group","center", "region", "gene.clade","value", "gene_copy", "group", "sample.group")
+
+rd1000.groups
+```
+
+
+
+Summary statistics for each gene specific clade group (remove data from BCM)
+```{r}
+group.sums.by.sample <- rd1000.groups %>% filter(center != "BCM") %>%
+  group_by(sample, pop, pop.group, center, group) %>% 
+  summarise(group.total = sum(value))
+
+total.duf.by.sample <- group.sums.by.sample %>% group_by(sample) %>%
+  summarise(total.duf = sum(group.total))
+
+group.sums.by.sample <- merge(group.sums.by.sample, total.duf.by.sample)
+
+write.table(group.sums.by.sample, file = "~/LabProjects/ReadDepth/variation_analysis/1000Genomes-group-sums-by-sample.txt",
+            quote = FALSE,
+            sep = "\t",
+            row.names = FALSE)
+
+group.sums.by.sample
+
+group.sum.stats.across.pop <- group.sums.by.sample %>% filter(center != "BCM") %>%
+  group_by(group) %>% 
+  summarise(group.mean = round(mean(group.total),2),
+            group.sd = round(sd(group.total),2),
+            group.min = round(min(group.total),2),
+            group.max = round(max(group.total),2)) %>% 
+  arrange(group.mean)
+
+group.sum.stats.across.pop
+
+write.table(group.sum.stats.across.pop, file = "~/LabProjects/ReadDepth/variation_analysis/1000Genomes-group-summary-stats.txt",
+            quote = FALSE,
+            sep = "\t",
+            row.names = FALSE)
+
+# Summary stats by population
+group.sum.stats.by.pop <- group.sums.by.sample %>% filter(center != "BCM") %>%
+  group_by(pop,group) %>% 
+  summarise(group.mean = round(mean(group.total),2),
+            group.sd = round(sd(group.total),2),
+            group.min = round(min(group.total),2),
+            group.max = round(max(group.total),2)) %>% 
+  arrange(group)
+
+group.sum.stats.by.pop
+
+# Summary stats by sequencing center
+group.sum.stats.by.center <- group.sums.by.sample %>% filter(center != "BCM") %>%
+  group_by(center,group) %>% 
+  summarise(group.mean = round(mean(group.total),2),
+            group.sd = round(sd(group.total),2),
+            group.min = round(min(group.total),2),
+            group.max = round(max(group.total),2)) %>% 
+  arrange(group)
+
+group.sum.stats.by.center
+
+# Test for assocation of sequencing center with total DUF1220
+group.sums.by.sample
+
+```
+
+Plot data by group
+```{r}
+ggplot(data = group.sums.by.sample,
+       mapping = aes(y = group, x = group.total, color = center)) +
+  geom_quasirandom()
+```
+
+Try figuring out what the effect of sequencing center and population is with log-liklihood test
+```{r}
+#modify data frame structure
+center.test <- group.sums.by.sample %>% mutate(BGI = ifelse(center == "BGI",1,0),
+                                               SC = ifelse(center == "SC",1,0),
+                                               BI = ifelse(center == "BI",1,0),
+                                               ILLUMINA = ifelse(center == "ILLUMINA",1,0),
+                                               MPIMG = ifelse(center == "MPIMG",1,0),
+                                               WUGSC = ifelse(center == "WUGSC",1,0))
+
+center.test <- center.test %>% mutate(ASW = ifelse(pop == "ASW",1,0),
+                                      CEU = ifelse(pop == "CEU",1,0),
+                                      CHB = ifelse(pop == "CHB",1,0),
+                                      CHS = ifelse(pop == "CHS",1,0),
+                                      CLM = ifelse(pop == "CLM",1,0),
+                                      FIN = ifelse(pop == "FIN",1,0),
+                                      GBR = ifelse(pop == "GBR",1,0),
+                                      IBS = ifelse(pop == "IBS",1,0),
+                                      JPT = ifelse(pop == "JPT",1,0),
+                                      LWK = ifelse(pop == "LWK",1,0),
+                                      MXL = ifelse(pop == "MXL",1,0),
+                                      PUR = ifelse(pop == "PUR",1,0),
+                                      TSI = ifelse(pop == "TSI",1,0),
+                                      YRI = ifelse(pop == "YRI",1,0))
+
+write.table(center.test, file = "~/LabProjects/ReadDepth/variation_analysis/1000Genomes-data-setup-for-test-of-center-and-pop.txt",
+            quote = FALSE,
+            sep = "\t",
+            col.names = TRUE,
+            row.names = FALSE)
+
+no.pred <- lm(total.duf ~ 1, center.test)
+# MPIMG is the reference (it isn't in the model)
+reduced.cent <- lm(total.duf ~ BGI + SC + BI + ILLUMINA + WUGSC, center.test)
+#LWK is the reference (it isn't in the model)
+reduced.pop <- lm(total.duf ~ ASW + CEU + CHB + CHS + CLM + FIN + GBR + IBS + JPT + MXL + PUR + TSI + YRI, center.test)
+# Full - both sequencing centers and pops, with MPIMG as the reference (it is left out of model)
+full <- lm(total.duf ~ BGI + SC + BI + ILLUMINA  + WUGSC + 
+           ASW + CEU + CHB + CHS + CLM + FIN + GBR + IBS + JPT + LWK + MXL + PUR + TSI + YRI, center.test)
+
+anova(no.pred,reduced.cent)
+anova(no.pred,reduced.pop)
+anova(reduced.cent,reduced.pop)
+anova(reduced.cent,full)
+anova(reduced.pop, full)
+
+
+#m1 <- lm(total.duf ~ center, group.sums.by.sample)
+#m2 <- lm(total.duf ~ center + pop, group.sums.by.sample)
+#m3 <- lm(total.duf ~ pop, group.sums.by.sample)
+#lrtest(m1, m2)
+#lrtest(m3,m2)
+```
+
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
