@@ -1,0 +1,247 @@
+---
+title: "Effect of sequencing center"
+output: html_notebook
+---
+```{r load libraries}
+library(tidyverse)
+library(car)
+```
+
+
+
+Read in data file
+```{r Read in data, message=FALSE}
+
+# Note: the file 1000Genomes-data-setup-for-test-of-center-and-pop.txt is generated in the script 1000-Genomes-DUF1220-Variation-Analysis.Rmd
+center.test <- read_delim("~/LabProjects/ReadDepth/variation_analysis/1000Genomes-data-setup-for-test-of-center-and-pop.txt", delim = "\t")
+center.test <- center.test %>% select(-group, -group.total) 
+center.test <- center.test %>% group_by(sample, pop, pop.group, center, BGI, SC, BI, ILLUMINA, MPIMG, WUGSC, ASW, CEU, CHB, CHS, CLM, FIN, GBR, IBS, JPT, LWK, MXL, PUR, TSI, YRI) %>% summarise(total.duf = median(total.duf)) 
+head(center.test)
+```
+
+### Calculate model containing only sequencing centers - set center MPIMG as reference
+```{r}
+reduced.cent <- lm(total.duf ~ BGI + SC + BI + ILLUMINA + WUGSC, center.test)
+summary(reduced.cent)
+```
+**Conclusions:**  
+Differences by sequencing center (not accounting for population) account for 22% of the variation in Total DUF1220  
+
+- Effect of being sequenced at BGI (relative to MPIMG) is, on average, an additional 72 copies of DUF1220  
+- Effect of being sequenced at SC (relative to MPIMG) is, on average, a reduction of 17 copies of DUF1220  
+- Effect of being sequenced at BI (relative to MPIMG) is, on average, an additional 39 copies of DUF1220  
+- Effect of being sequenced at ILLUMINA (relative to MPIMG) is, on average,a reduction of 66 copies of DUF1220  
+- Effect of being sequenced at WUGSC (relative to MPIMG) is, on average, a reduction of 16 copies of DUF1220  
+
+
+
+### Calculate model containing only populations - set population LWK as reference
+```{r}
+reduced.pop <- lm(total.duf ~ ASW + CEU + CHB + CHS + CLM + FIN + GBR + IBS + JPT + MXL + PUR + TSI + YRI, center.test)
+summary(reduced.pop)
+```
+**Conclusions:**  
+Differences by population (not accounting for sequencing center) account for ~20% of the variation in Total DUF1220
+
+- No significant effect of being from ASW (relative to LWK)  
+- Effect of being from CEU (relative to LWK) is, on average, an reduction of 95 copies  
+- Effect of being from CHB (relative to LWK) is, on average, an increase of 11 copies  
+- Etc....
+
+### Calculate model including all centers and populations (with sequencing center MPIMG, and population LWK as reference)
+```{r}
+full <- lm(total.duf ~ BGI + SC + BI + ILLUMINA  + WUGSC + 
+           ASW + CEU + CHB + CHS + CLM + FIN + GBR + IBS + JPT + MXL + PUR + TSI + YRI, center.test)
+summary(full)
+```
+**Conclusions:**  
+A model containing populations and sequencing centers accounts for ~31% of the variation in total DUF1220  
+
+After controlling for population, there is no significant effect of being sequenced at SC or WUGSC (relative to MPIMG). The remaining sequencing centers (BGI, ILLUMINA, WUGSC) continue to have highly significant and large effects.  
+
+After controlling for sequencing center, which populations have significant effects has changed:  
+
+- When not controlling for sequencing center, being from ASW or from GBR had no significant effect on total DUF1220 (relative to LWK) - all other populations did have significant effects  
+
+- When controlling for sequencing center, being from IBS no longer has a significant effect on total DUF1220 (relative to LWK), but ASW and GBR now have significant effects  
+
+
+
+## Test which model is best
+### Compare a model with no predictors to a model with sequencing centers only
+```{r }
+no.pred <- lm(total.duf ~ 1, center.test)
+anova(no.pred,reduced.cent)
+```
+**Conclusion:** Sequencing centers contribute significantly to the prediction of total DUF1220 (Would it be correct to say: Sequencing centers have a signficant effect on total DUF1220?)
+
+
+### Compare a model with no predictors to a model with populations only
+```{r}
+anova(no.pred,reduced.pop)
+```
+**Conclusion:** Population contributes significantly to the prediction of total DUF1220 Would it be correct to say: Population has a signficant effect on total DUF1220?)
+
+
+### Compare a model with sequencing centers only to a model containing both sequencing centers and populations
+```{r}
+anova(reduced.cent,full)
+```
+**Conclusion:** The two models are significantly different and the full model (sequencing centers and populations) does a better job of predicting total DUF1220 than the model with sequencing center only
+
+### Compare a model with populations only to a model containing both sequencing centers and populations
+```{r}
+anova(reduced.pop, full)
+```
+**Conclusion:**  
+The two models are significantly different and the full model (sequencing centers and populations) does a better job of predicting total DUF1220 than the model with populations only
+
+###Look at normality of the outcome variable
+```{r}
+hist(center.test$total.duf)
+```
+Distribution of outcome looks normal <- Good
+
+###Look at normality of studentized residuals
+```{r}
+library(MASS)
+hist(studres(reduced.cent))
+hist(studres(reduced.pop))
+hist(studres(full))
+detach("package:MASS", unload = T)
+```
+The residuals of each model appear normally distributed <- Good
+
+
+
+###Look for violations of homoscedascticity and linearity by sequencing center 
+```{r}
+crPlots(reduced.cent)
+```
+Illumina group seems to violate homoscedasticity, probably due to small sample size.
+
+###Look for violations of homoscedascticity and linearity by sequencing center 
+#### This is currently commented out because it keeps getting hung up
+```{r}
+#crPlots(reduced.pop)
+```
+
+
+
+Populations that may be problematic:
+ASW <- Small Population size
+CEU <- Something a little strange is potentially going on here.  Were all the CEU folk sequenced at the same center?  Could also be small sample size
+IBS <- Small population size
+JPT <- ?? Small population size or something a little strange
+MXL <- Small population size
+PUR <- Something a little strange/population size
+TSI <- Something a little strange going on
+
+Populations that looked totally OK to me:
+YRI
+CHB
+CHS
+CLM
+FIN
+GBR
+IBS
+
+
+# Re-run the code above with ILLUMINA samples removed
+## Illumina group seems to violate homoscedasticity, probably due to small sample size (See component residual plot when included in model), I am therefore removing those samples from the set, and running the models without the ILLUMINA samples)
+```{r , message=FALSE}
+
+# Note: the file 1000Genomes-data-setup-for-test-of-center-and-pop.txt is generated in the script 1000-Genomes-DUF1220-Variation-Analysis.Rmd
+center.test <- read_delim("~/LabProjects/ReadDepth/variation_analysis/1000Genomes-data-setup-for-test-of-center-and-pop.txt", delim = "\t")
+center.test <- center.test %>% select(-group, -group.total) %>% filter(center != ILLUMINA) 
+center.test <- center.test %>% group_by(sample, pop, pop.group, center, BGI, SC, BI, MPIMG, WUGSC, ASW, CEU, CHB, CHS, CLM, FIN, GBR, IBS, JPT, LWK, MXL, PUR, TSI, YRI) %>% summarise(total.duf = median(total.duf)) 
+head(center.test)
+```
+
+### Calculate model containing only sequencing centers - set center MPIMG as reference
+```{r}
+reduced.cent <- lm(total.duf ~ BGI + SC + BI + WUGSC, center.test)
+summary(reduced.cent)
+```
+**Conclusions:**  
+
+In a model of sequencing centers only (with MPIMG as the reference):  
+- No significant effect of being sequenced at SC or WUGSC relative to MPIMG  
+- Large and significant effects associated with being sequenced at BGI or BI  
+
+### Calculate model containing only populations - set population LWK as reference
+```{r}
+reduced.pop <- lm(total.duf ~ ASW + CEU + CHB + CHS + CLM + FIN + GBR + IBS + JPT + MXL + PUR + TSI + YRI, center.test)
+summary(reduced.pop)
+```
+**Conclusions:**  
+
+In a model containing populations only (with LWK as reference):  
+- Significant effect of being from CEU, JPT, PUR, or TSI (relative to LWK)  
+- No other populations have significant effects relative to LWK  
+
+
+### Calculate model including all centers and populations (with sequencing center MPIMG and population LWK reference)
+```{r}
+full <- lm(total.duf ~ BGI + SC + BI + WUGSC + 
+           ASW + CEU + CHB + CHS + CLM + FIN + GBR + IBS + JPT + MXL + PUR + TSI + YRI, center.test)
+summary(full)
+```
+**Conclusions:**  
+
+In a model containing both sequencing center and population (with MPIMG and LWK as reference sequencing center and population respectively):    
+- Effect of being sequenced at BGI and BI is still significant
+- Only population that has a significant effect is CEU
+
+## Test which model is best
+### Compare a model with no predictors to a model with sequencing centers only
+```{r }
+no.pred <- lm(total.duf ~ 1, center.test)
+anova(no.pred,reduced.cent)
+```
+**Conclusion:** Sequencing centers contribute significantly to the prediction of total DUF1220/Sequencing centers have a signficant effect on total DUF1220
+
+
+### Compare a model with no predictors to a model with populations only
+```{r}
+anova(no.pred,reduced.pop)
+```
+**Conclusion:** Population contributes significantly to the prediction of total DUF1220/Population has a signficant effect on total DUF1220
+
+
+### Compare a model with sequencing centers only to a model containing both sequencing centers and populations
+```{r}
+anova(reduced.cent,full)
+```
+**Conclusion:** The two models are significantly different and the full model (sequencing centers and populations) does a better job of predicting total DUF1220 than the model with sequencing center only
+
+### Compare a model with populations only to a model containing both sequencing centers and populations
+```{r}
+anova(reduced.pop, full)
+```
+**Conclusion:**  
+The two models are significantly different and the full model (sequencing centers and populations) does a better job of predicting total DUF1220 than the model with populations only
+
+###Look at normality of the outcome variable
+```{r}
+hist(center.test$total.duf)
+```
+Distribution of outcome looks normal <- Good
+
+###Look at normality of studentized residuals
+```{r}
+library(MASS)
+hist(studres(reduced.cent))
+hist(studres(reduced.pop))
+hist(studres(full))
+detach("package:MASS", unload = T)
+```
+The residuals of each model appear normally distributed <- Good
+
+
+
+###Look for violations of homoscedascticity and linearity by sequencing center 
+```{r}
+crPlots(reduced.cent)
+```
+
