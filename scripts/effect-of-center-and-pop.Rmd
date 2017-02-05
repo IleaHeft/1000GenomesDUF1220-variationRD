@@ -10,6 +10,7 @@ output: html_notebook
 library(tidyverse)
 library(car)
 library(reshape2)
+library(ggbeeswarm)
 
 rd1000 <- read_delim("~/LabProjects/ReadDepth/data/1000Genomes/1000Genomes_with_unique_regions.txt", "\t")
 colnames(rd1000) <- tolower(colnames(rd1000))
@@ -169,6 +170,12 @@ Differences by sequencing center (not accounting for population) account for ~20
 - Effect of being sequenced at BGI (relative to MPIMG) is, on average, an additional 72 copies of DUF1220  
 - Effect of being sequenced at BI (relative to MPIMG) is, on average, an additional 39 copies of DUF1220  
 
+#### Visualize squencing center associations
+```{r}
+ggplot(center.test, aes(x=center, y = total.duf)) + geom_point()
+```
+
+
 
 ### Calculate model containing only populations - set population LWK as reference
 _LWK selected as reference because the mean total DUF1220 copy number for this group is intermediate to the others_
@@ -197,6 +204,12 @@ In a model containing populations only (with LWK as reference):
 - Significant effect of being from CEU, JPT, PUR, or TSI (relative to LWK)  
 - No other populations have significant effects relative to LWK  
 
+#### Visualize population associations
+
+```{r}
+ggplot(center.test, aes(x = pop, y = total.duf)) + geom_point()
+```
+
 
 ### Calculate model including all centers and populations (with sequencing center MPIMG and population LWK reference)
 ```{r}
@@ -215,6 +228,13 @@ detach("package:MASS", unload = T)
 ```{r}
 summary(full)
 ```
+#### Visualize relationship between population, sequencing center, and total duf1220
+
+```{r}
+ggplot(center.test,aes(x = pop, y = total.duf, color = center)) + geom_quasirandom()
+```
+
+
 
 **Conclusions:**  
 
