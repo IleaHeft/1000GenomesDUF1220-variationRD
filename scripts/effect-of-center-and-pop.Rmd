@@ -2,6 +2,9 @@
 title: "Effect of Sequencing Center and Population on Total DUF1220"
 output: html_notebook
 ---
+# Questions:  
+- Should I be treating sequencing centers and populations as random rather than fixed? Are my models correct/do they make sense?
+
 # Setup Code
 ```{r}
 library(tidyverse)
@@ -54,10 +57,10 @@ python ~/LabProjects/ReadDepth/variation_analysis/for-making-gene-specific-clade
 ```{r}
 # Read in the data with the gene specific clade group information added
 rd1000.groups <- read_delim("~/LabProjects/ReadDepth/variation_analysis/1000Genomes-rd-data-with-groupings.txt", delim = "\t", col_names = FALSE)
-colnames(rd1000.groups) <- c("sample","pop", "pop.group","center", "region", "gene.clade","value", "gene_copy", "group", "sample.group")
+colnames(rd1000.groups) <- c("sample","pop", "pop.group","center","mean.insert","tot.reads", "region", "gene.clade","value", "gene_copy", "group", "sample.group")
 
 group.sums.by.sample <- rd1000.groups %>% filter(center != "BCM") %>%
-  group_by(sample, pop, pop.group, center, group) %>% 
+  group_by(sample, pop, pop.group, center, mean.insert,tot.reads,group) %>% 
   summarise(group.total = sum(value))
 
 total.duf.by.sample <- group.sums.by.sample %>% group_by(sample) %>%
@@ -88,7 +91,7 @@ center.test <- center.test %>% mutate(ASW = ifelse(pop == "ASW",1,0),
                                       YRI = ifelse(pop == "YRI",1,0))
 
 center.test <- center.test %>% select(-group, -group.total) 
-center.test <- center.test %>% group_by(sample, pop, pop.group, center, BGI, SC, BI, ILLUMINA, MPIMG, WUGSC, ASW, CEU, CHB, CHS, CLM, FIN, GBR, IBS, JPT, LWK, MXL, PUR, TSI, YRI) %>% summarise(total.duf = median(total.duf)) 
+center.test <- center.test %>% group_by(sample, pop, pop.group, center, mean.insert, tot.reads, BGI, SC, BI, ILLUMINA, MPIMG, WUGSC, ASW, CEU, CHB, CHS, CLM, FIN, GBR, IBS, JPT, LWK, MXL, PUR, TSI, YRI) %>% summarise(total.duf = median(total.duf)) 
 ```
 
 Show the head of the data frame used for the below analysis
@@ -252,3 +255,48 @@ The two models are significantly different and the full model (sequencing center
 - Large and significant effect of being sequenced at BGI or BI - on total DUF1220, remain after correcting for population.  
 - For analysis of variation in population, consider excluding samples sequenced at those centers, or reporting the data for those centers separately from the data from the other three centers (MPIMG, SC, and WUGSC)
 - Consider adding or removing samples from total sample set to equalize number of samples from each population and from each sequencing center
+
+# Look into effects of coverage (total reads) and insert size
+#### Effect of insert size
+##### Some samples show "zero insert size", the data is "zero" in the sequence.index file -- removing those samples for this analysis since not sure what is going on there
+```{r}
+center.test <- center.test %>% filter(mean.insert != 0)
+insert.model <- lm(total.duf ~ mean.insert, center.test)
+summary(insert.model)
+```
+**Conclusion:**  
+- Insert size has a significant effect of DUF1220  
+
+##### Visualize association
+```{r}
+ggplot(center.test, aes(x = mean.insert, y = total.duf, color = center)) + geom_point()
+```
+
+
+#### Investigate a model that includes insert size and sequencing center
+```{r}
+center <- lm(total.duf ~ BGI + SC + BI + WUGSC, center.test) # need to regenerate the center model since I removed some datapoints (where mean insert size was 0)
+insert.center <- lm(total.duf ~ BGI + SC + BI + WUGSC + mean.insert, center.test)
+summary(insert.center)
+```
+
+##### Compare model of sequencing centers only to model with sequencing center and insert size
+```{r}
+anova(center, insert.center)
+```
+**Conclusion:**  
+- A model with both sequencing centers and mean insert size is not better than a model with sequencing centers allone
+
+
+```{r}
+tot.reads.model <- lm(total.duf ~ tot.reads, center.test)
+summary(tot.reads.model)
+```
+**Conclusion:**  
+- Number of total reads is not linearly associated with Total DUF1220 
+
+##### Visualize association
+```{r}
+ggplot(center.test, aes(x = tot.reads, y = total.duf, color = center)) + geom_point()
+```
+
