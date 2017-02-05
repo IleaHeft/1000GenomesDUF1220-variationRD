@@ -1,0 +1,105 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r load libraries}
+library(tidyverse)
+```
+
+```{r}
+# read in data
+
+seq.index <- read_delim("~/LabProjects/1000GenomesDUF1220-variationRD/data/1000Genomes_HiSeq.txt",
+                        delim = "\t")
+colnames(seq.index) <- tolower(colnames(seq.index))
+
+pop.groups <- read.delim("~/LabProjects/ReadDepth/data/1000Genomes/PopulationGroups.csv", sep = ",")
+colnames(pop.groups) <- tolower(colnames(pop.groups))
+
+seq.index <- merge(seq.index,pop.groups)
+```
+
+```{r}
+#Filter on number of reads
+
+samples.100M.mapped <- seq.index %>% group_by(sample_name, center_name, population, pop.group) %>%
+  summarise(tot.reads = sum(read_count)) %>%
+  filter(tot.reads >= 100e6)
+```
+
+## Calculate number each population by sequencing center
+```{r}
+pop.counts.by.center <- samples.100M.mapped %>%
+  group_by(center_name, population) %>%
+  summarise(count = n()) 
+```
+
+### Visualize data
+```{r}
+ggplot(pop.counts.by.center, aes(x = center_name, y = count, fill = population)) +
+  geom_bar(stat = "identity")
+```
+
+
+```{r}
+pops.20.or.more.by.center <- pop.counts.by.center %>% filter(count >= 20)
+
+ggplot(pops.20.or.more.by.center, aes(x = center_name, y = count, fill = population)) +
+  geom_bar(stat = "identity")
+```
+
+Look at distributions by population group, rather than the smaller populations
+```{r}
+pop.groups.by.center <- samples.100M.mapped %>%
+  group_by(center_name, pop.group) %>%
+  summarise(count = n()) 
+```
+
+Visualize results
+```{r}
+ggplot(pop.groups.by.center, aes(x = center_name, y = count, fill = pop.group, label = count)) +
+  geom_bar(stat = "identity") +
+  geom_text(size = 2, position = position_stack(vjust = 0.5))
+```
+
+Randomly select 20 samples from each population where 20 or more samples were sequenced at BGI
+```{r}
+pops.20.or.more.bgi <- pops.20.or.more.by.center %>% filter(center_name == "BGI")
+
+by.pop.bgi <- samples.100M.mapped %>% 
+  filter(center_name == "BGI",
+         population %in% pops.20.or.more.bgi$population) %>%
+  group_by(population)
+
+rand.20.per.pop.bgi <- sample_n(by.pop.bgi,20)
+
+length(rand.20.per.pop.bgi$sample_name)
+
+rand.20.per.pop.group.rep <- rand.20.per.pop.bgi %>% group_by(pop.group) %>% summarise(count = n())
+ggplot(rand.20.per.pop.group.rep, aes(x = pop.group, y = count)) + geom_bar(stat = "identity")
+```
+Produces a list of 160 samples
+
+
+Randomly select 20 samples from each population where 20 or more samples were sequenced at SC
+```{r}
+pops.20.or.more.sc <- pops.20.or.more.by.center %>% filter(center_name == "SC")
+
+by.pop.sc <- samples.100M.mapped %>% 
+  filter(center_name == "SC",
+         population %in% pops.20.or.more.sc$population) %>%
+  group_by(population)
+
+rand.20.per.pop.sc <- sample_n(by.pop.sc,20)
+
+rand.20.per.pop.group.rep <- rand.20.per.pop.sc %>% group_by(pop.group) %>% summarise(count = n())
+
+length(rand.20.per.pop.sc$sample_name)
+
+ggplot(rand.20.per.pop.group.rep, aes(x = pop.group, y = count)) + geom_bar(stat = "identity")
+```
+Produces a list of 220 samples
+
+
+
